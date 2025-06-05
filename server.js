@@ -7,7 +7,7 @@ const app = express();
 
 // Middleware
 app.use(cors({
-  origin: 'https://www.designx-solutions.co.za/' // Replace with your Netlify URL
+  origin: ['https://designx-solutions.co.za', 'https://www.designx-solutions.co.za']
 }));
 app.use(express.json());
 
