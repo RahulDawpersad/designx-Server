@@ -2,6 +2,7 @@ require('dotenv').config();
 const express = require('express');
 const nodemailer = require('nodemailer');
 const cors = require('cors');
+const axios = require('axios'); // Add this at the top with other requires
 
 const app = express();
 
@@ -170,6 +171,34 @@ app.post('/send-email', async (req, res) => {
 });
 
 const PORT = process.env.PORT || 3001;
-app.listen(PORT, () => {
+const server = app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
+  
+  // Start keep-alive only in production
+  if (process.env.NODE_ENV === 'production') {
+    startKeepAlive();
+  }
 });
+
+// Keep-alive function
+function startKeepAlive() {
+  const interval = 14 * 60 * 1000; // 14 minutes (less than Render's 15-minute timeout)
+  const url = `https://${process.env.RENDER_EXTERNAL_URL || `localhost:${PORT}`}`;
+  
+  console.log(`Starting keep-alive requests to ${url} every ${interval/60000} minutes`);
+  
+  const keepAlive = async () => {
+    try {
+      const response = await axios.get(url);
+      console.log(`Keep-alive ping successful: ${response.status}`);
+    } catch (error) {
+      console.error('Keep-alive ping failed:', error.message);
+    }
+  };
+  
+  // Initial call
+  keepAlive();
+  
+  // Set up interval
+  setInterval(keepAlive, interval);
+}
