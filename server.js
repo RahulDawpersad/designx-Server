@@ -2,12 +2,13 @@ require('dotenv').config();
 const express = require('express');
 const nodemailer = require('nodemailer');
 const cors = require('cors');
+const axios = require('axios'); // Add this at the top with other requires
 
 const app = express();
 
 // Middleware
 app.use(cors({
-  origin: 'https://your-netlify-site.netlify.app' // Replace with your Netlify URL
+  origin: ['https://designx-solutions.co.za', 'https://www.designx-solutions.co.za']
 }));
 app.use(express.json());
 
@@ -26,7 +27,7 @@ app.get('/', (req, res) => {
 });
 
 // Email endpoint
-app.post('/send-email', (req, res) => {
+app.post('/send-email', async (req, res) => {
   try {
     const { name, email, phone, service, message } = req.body;
 
@@ -37,7 +38,8 @@ app.post('/send-email', (req, res) => {
       });
     }
 
-    const mailOptions = {
+    // Email to business
+    const businessMailOptions = {
       from: process.env.EMAIL_USER,
       to: process.env.EMAIL_USER,
       subject: `New Inquiry: ${service} - ${name}`,
@@ -88,20 +90,77 @@ app.post('/send-email', (req, res) => {
       `
     };
 
-    transporter.sendMail(mailOptions, (error, info) => {
-      if (error) {
-        console.error('Email send error:', error);
-        return res.status(500).json({
-          success: false,
-          error: 'Error sending email'
-        });
-      }
-      console.log('Email sent:', info.response);
-      res.json({
-        success: true,
-        message: 'Email sent successfully'
+    // Email to client
+    const clientMailOptions = {
+      from: process.env.EMAIL_USER,
+      to: email,
+      subject: `Thank you for contacting DesignX!`,
+      html: `
+      <div style="font-family: 'Arial', sans-serif; max-width: 600px; margin: 0 auto; border: 1px solid #e0e0e0; border-radius: 8px; overflow: hidden;">
+        <div style="background-color: #4BB543; padding: 20px; text-align: center;">
+          <h1 style="color: white; margin: 0;">Thank You, ${name}!</h1>
+        </div>
+        
+        <div style="padding: 25px; background-color: #f9f9f9;">
+          <p style="font-size: 16px; line-height: 1.6; color: #444;">
+            We've received your inquiry about our <strong>${service}</strong> service and we're excited to work with you!
+          </p>
+          
+          <div style="background-color: white; padding: 15px; border-radius: 5px; border: 1px solid #e0e0e0; margin: 20px 0;">
+            <h3 style="color: #4BB543; margin-top: 0;">Here's what happens next:</h3>
+            <ol style="padding-left: 20px; color: #444;">
+              <li style="margin-bottom: 8px;">Our team will review your request within 24 hours</li>
+              <li style="margin-bottom: 8px;">We'll contact you at ${email} ${phone ? `or ${phone}` : ''} to discuss your project</li>
+              <li>We'll provide a detailed proposal and answer any questions you have</li>
+            </ol>
+          </div>
+          
+          <p style="font-size: 16px; line-height: 1.6; color: #444;">
+            In the meantime, feel free to reply to this email if you have any additional questions or information to share.
+          </p>
+          
+          <div style="text-align: center; margin-top: 25px;">
+            <a href="mailto:${process.env.EMAIL_USER}" style="display: inline-block; background-color: #4BB543; color: white; padding: 12px 25px; text-decoration: none; border-radius: 4px; font-weight: bold;">Contact Us</a>
+          </div>
+        </div>
+        
+        <div style="background-color: #f0f0f0; padding: 15px; text-align: center; font-size: 12px; color: #777;">
+          <p>This is an automated confirmation of your inquiry submitted at ${new Date().toLocaleString()}</p>
+          <p>© ${new Date().getFullYear()} DesignX. All rights reserved.</p>
+        </div>
+      </div>
+      `
+    };
+
+    // Send both emails
+    const businessEmailPromise = new Promise((resolve, reject) => {
+      transporter.sendMail(businessMailOptions, (error, info) => {
+        if (error) reject(error);
+        else resolve(info);
       });
     });
+
+    const clientEmailPromise = new Promise((resolve, reject) => {
+      transporter.sendMail(clientMailOptions, (error, info) => {
+        if (error) reject(error);
+        else resolve(info);
+      });
+    });
+
+    // Wait for both emails to be sent
+    const [businessResult, clientResult] = await Promise.all([
+      businessEmailPromise,
+      clientEmailPromise
+    ]);
+
+    console.log('Business email sent:', businessResult.response);
+    console.log('Client email sent:', clientResult.response);
+
+    res.json({
+      success: true,
+      message: 'Emails sent successfully'
+    });
+
   } catch (error) {
     console.error('Server error:', error);
     res.status(500).json({
@@ -112,6 +171,37 @@ app.post('/send-email', (req, res) => {
 });
 
 const PORT = process.env.PORT || 3001;
-app.listen(PORT, () => {
+const server = app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
+  
+  // Start keep-alive only in production
+  if (process.env.NODE_ENV === 'production') {
+    startKeepAlive();
+  }
 });
+
+// Keep-alive function
+function startKeepAlive() {
+  const interval = 14 * 60 * 1000; // 14 minutes (less than Render's 15-minute timeout)
+  const url = process.env.RENDER_EXTERNAL_URL || `http://localhost:${PORT}`;
+  
+  // Remove any accidental "https://https://" duplicates
+  const cleanUrl = url.replace(/^(https?:\/\/)+/i, 'https://');
+  
+  console.log(`Starting keep-alive requests to ${cleanUrl} every ${interval/60000} minutes`);
+  
+  const keepAlive = async () => {
+    try {
+      const response = await axios.get(cleanUrl);
+      console.log(`Keep-alive ping successful: ${response.status}`);
+    } catch (error) {
+      console.error('Keep-alive ping failed:', error.message);
+    }
+  };
+  
+  // Initial call
+  keepAlive();
+  
+  // Set up interval
+  setInterval(keepAlive, interval);
+}
